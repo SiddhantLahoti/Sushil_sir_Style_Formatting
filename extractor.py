@@ -192,3 +192,94 @@ def extract_products_from_breakup(
 
     wb.close()
     return products
+
+
+def extract_products_from_sketch(file_source, category_map=None):
+    cat_mapping = category_map or CATEGORY_MAPPING
+
+    if hasattr(file_source, "seek"):
+        file_source.seek(0)
+
+    # 1. Extract floating images
+    sheet_images = extract_images_from_xlsx(file_source)
+
+    if hasattr(file_source, "seek"):
+        file_source.seek(0)
+    wb = openpyxl.load_workbook(file_source, data_only=True)
+    ws = wb.active
+
+    products = []
+    max_row = ws.max_row
+
+    for r in range(1, max_row + 1):
+        cell_a = ws.cell(row=r, column=1).value
+        # Detect "Sketch No." in Column A
+        if cell_a and "sketch no" in str(cell_a).strip().lower():
+            style_val = ws.cell(row=r, column=3).value  # Column C has style number
+            if not style_val:
+                continue
+            style_num = str(style_val).strip()
+
+            # Category is at row r + 15 in Column P (column 16)
+            raw_cat = str(ws.cell(row=r + 15, column=16).value or "").strip().lower()
+            category = cat_mapping.get(raw_cat, "ring")
+
+            # Extract Sketch Image from Column O (col 15) near rows r to r + 12
+            prod_image = None
+            matched_item = None
+            best_dist = float("inf")
+            for item in sheet_images:
+                if item["col"] in (14, 15):  # Column O
+                    if r <= item["row"] <= r + 12:
+                        dist = abs(item["row"] - r)
+                        if dist < best_dist:
+                            best_dist = dist
+                            matched_item = item
+
+            if matched_item:
+                sheet_images.remove(matched_item)
+                prod_image = matched_item["img"]
+
+            # Multi-row diamond extraction starting from row r + 2
+            diamond_rows = []
+            curr_r = r + 2
+            while curr_r <= max_row:
+                qty_val = ws.cell(row=curr_r, column=8).value  # Column H has QTY
+                if qty_val is None or str(qty_val).strip() == "":
+                    break
+
+                col_c = ws.cell(row=curr_r, column=3).value   # Quality -> Col O
+                raw_shape = ws.cell(row=curr_r, column=4).value
+                shape_map = {"RDFC": "RD", "RDSC": "SC RD"}
+                col_d = shape_map.get(str(raw_shape).strip().upper(), raw_shape) if raw_shape is not None else raw_shape
+                col_e = ws.cell(row=curr_r, column=5).value   # Sieve -> Col M
+                col_g = ws.cell(row=curr_r, column=7).value   # Each Dia Wt -> Col Q
+                col_h = qty_val                               # Qty -> Col P
+                col_j = ws.cell(row=curr_r, column=10).value  # Setting part 1
+                col_k = ws.cell(row=curr_r, column=11).value  # Setting part 2
+
+                # Merge J and K with space -> Col Z
+                setting_parts = [str(x).strip() for x in (col_j, col_k) if x is not None and str(x).strip() != ""]
+                setting_val = " ".join(setting_parts) if setting_parts else None
+
+                diamond_rows.append({
+                    "sieve": col_e,
+                    "type_shape": col_d,
+                    "dia_qlty": col_c,
+                    "qty": col_h,
+                    "each_dia_wt": col_g,
+                    "setting": setting_val,
+                })
+                curr_r += 1
+
+            products.append({
+                "style_no": style_num,
+                "category": category,
+                "raw_category": raw_cat,
+                "diamond_count": len(diamond_rows),
+                "diamonds": diamond_rows,
+                "image": prod_image,
+            })
+
+    wb.close()
+    return products

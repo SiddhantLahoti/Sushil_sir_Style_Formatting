@@ -64,59 +64,96 @@ with st.sidebar:
 
 
 # ==============================================================================
-# MAIN PAGE: SINGLE FILE UPLOAD
+# MAIN PAGE: TABS FOR FILE A AND FILE B
 # ==============================================================================
-uploaded_file = st.file_uploader(
-    "Upload Style Breakup Excel File (.xlsx)",
-    type=["xlsx"],
-    help="Upload the client style breakup sheet containing products and photos."
-)
+tab_a, tab_b = st.tabs(["📁 Style Breakup (File A)", "🎨 Sketch Sheet (File B)"])
 
-if uploaded_file:
-    if st.button("Generate Costing Breakup", type="primary", use_container_width=True):
-        with st.spinner("Processing products, translating formulas, and placing images..."):
-            try:
-                # Build custom configurations from UI fields
-                ui_config = {
-                    "header_aliases": {
-                        "style": [k.strip() for k in style_kw.split(",") if k.strip()],
-                        "rm_type": [k.strip() for k in rm_type_kw.split(",") if k.strip()],
-                        "sieve": [k.strip() for k in sieve_kw.split(",") if k.strip()],
-                        "rm_code": [k.strip() for k in rm_code_kw.split(",") if k.strip()],
-                        "rm_qty": [k.strip() for k in qty_kw.split(",") if k.strip()],
-                        "each_dia_wt": [k.strip() for k in wt_kw.split(",") if k.strip()],
-                        "setting": [k.strip() for k in setting_kw.split(",") if k.strip()],
-                        "cust": [k.strip() for k in cust_kw.split(",") if k.strip()],
-                    },
-                    "category_offset": int(cat_offset),
-                    "image_col": column_index_from_string(img_col_letter),
-                    "header_last_row": int(header_last_row),
-                    "spacer_rows": int(spacer_rows),
-                    "sr_no_col": sr_col,
-                    "style_no_col": style_col,
-                    "template_diamond_cols": {
-                        "sieve": col_sieve,
-                        "type_shape": col_shape,
-                        "qty": col_qty,
-                        "each_dia_wt": col_wt,
-                        "setting": col_setting,
-                    },
-                    "format_block_ranges": format_blocks,
-                    "category_mapping": config.CATEGORY_MAPPING,
-                }
+# Common UI config helper
+def get_ui_config():
+    cols_dict = dict(config.TEMPLATE_DIAMOND_COLS)
+    cols_dict.update({
+        "sieve": col_sieve,
+        "type_shape": col_shape,
+        "qty": col_qty,
+        "each_dia_wt": col_wt,
+        "setting": col_setting,
+    })
+    return {
+        "header_aliases": {
+            "style": [k.strip() for k in style_kw.split(",") if k.strip()],
+            "rm_type": [k.strip() for k in rm_type_kw.split(",") if k.strip()],
+            "sieve": [k.strip() for k in sieve_kw.split(",") if k.strip()],
+            "rm_code": [k.strip() for k in rm_code_kw.split(",") if k.strip()],
+            "rm_qty": [k.strip() for k in qty_kw.split(",") if k.strip()],
+            "each_dia_wt": [k.strip() for k in wt_kw.split(",") if k.strip()],
+            "setting": [k.strip() for k in setting_kw.split(",") if k.strip()],
+            "cust": [k.strip() for k in cust_kw.split(",") if k.strip()],
+        },
+        "category_offset": int(cat_offset),
+        "image_col": column_index_from_string(img_col_letter),
+        "header_last_row": int(header_last_row),
+        "spacer_rows": int(spacer_rows),
+        "sr_no_col": sr_col,
+        "style_no_col": style_col,
+        "template_diamond_cols": cols_dict,
+        "format_block_ranges": format_blocks,
+        "category_mapping": config.CATEGORY_MAPPING,
+    }
 
-                output_stream = generate_costing_sheet(
-                    style_breakup_file=uploaded_file,
-                    user_config=ui_config,
-                )
+# TAB 1: File A (Style Breakup - Unchanged)
+with tab_a:
+    uploaded_file_a = st.file_uploader(
+        "Upload Style Breakup Excel File (.xlsx)",
+        type=["xlsx"],
+        key="file_uploader_a",
+        help="Upload the client style breakup sheet containing products and photos."
+    )
+    if uploaded_file_a:
+        if st.button("Generate Costing Breakup (File A)", type="primary", use_container_width=True):
+            with st.spinner("Processing File A products, formulas, and images..."):
+                try:
+                    output_stream = generate_costing_sheet(
+                        style_breakup_file=uploaded_file_a,
+                        user_config=get_ui_config(),
+                        input_mode="breakup",
+                    )
+                    st.success("Costing sheet generated successfully!")
+                    st.download_button(
+                        label="📥 Download Costing Breakup (.xlsx)",
+                        data=output_stream,
+                        file_name="Costing_Breakup_Generated.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        key="dl_btn_a",
+                    )
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
-                st.success("Costing sheet generated successfully!")
-                st.download_button(
-                    label="📥 Download Costing Breakup (.xlsx)",
-                    data=output_stream,
-                    file_name="Costing_Breakup_Generated.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                )
-            except Exception as e:
-                st.error(f"Error: {e}")
+# TAB 2: File B (Sketch Sheet)
+with tab_b:
+    uploaded_file_b = st.file_uploader(
+        "Upload Sketch Sheet Excel File (.xlsx)",
+        type=["xlsx"],
+        key="file_uploader_b",
+        help="Upload the sketch sheet containing Sketch No., photos in Column O, and diamond details."
+    )
+    if uploaded_file_b:
+        if st.button("Generate Costing Breakup (File B)", type="primary", use_container_width=True):
+            with st.spinner("Processing File B sketch cards, formulas, and images..."):
+                try:
+                    output_stream = generate_costing_sheet(
+                        style_breakup_file=uploaded_file_b,
+                        user_config=get_ui_config(),
+                        input_mode="sketch",
+                    )
+                    st.success("Costing sheet generated successfully from Sketch Sheet!")
+                    st.download_button(
+                        label="📥 Download Costing Breakup (.xlsx)",
+                        data=output_stream,
+                        file_name="Costing_Breakup_From_Sketch.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        key="dl_btn_b",
+                    )
+                except Exception as e:
+                    st.error(f"Error: {e}")

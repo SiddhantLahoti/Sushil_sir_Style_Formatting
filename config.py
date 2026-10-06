@@ -52,6 +52,7 @@ CATEGORY_MAPPING = {
 TEMPLATE_DIAMOND_COLS = {
     "sieve": "M",          # SIEVE
     "type_shape": "N",     # Type/ Shape
+    "dia_qlty": "O",       # Quality (from Column C of File B)
     "qty": "P",            # QTY
     "each_dia_wt": "Q",    # Each Dia Wt
     "setting": "Z",        # Setting

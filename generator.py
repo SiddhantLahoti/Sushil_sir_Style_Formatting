@@ -15,10 +15,10 @@ from config import (
     TEMPLATE_DIAMOND_COLS,
 )
 from excel_utils import copy_cell
-from extractor import extract_products_from_breakup
+from extractor import extract_products_from_breakup , extract_products_from_sketch
 
 
-def generate_costing_sheet(style_breakup_file=STYLE_BREAKUP_PATH, user_config=None):
+def generate_costing_sheet(style_breakup_file=STYLE_BREAKUP_PATH, user_config=None, input_mode="breakup"):
     cfg = user_config or {}
 
     # Extract UI / dynamic overrides with config fallbacks
@@ -35,15 +35,22 @@ def generate_costing_sheet(style_breakup_file=STYLE_BREAKUP_PATH, user_config=No
     template_path = cfg.get("costing_template_path", COSTING_TEMPLATE_PATH)
     
 
-    # 1. Parse products, images, and diamond rows from Style Breakup
-    products = extract_products_from_breakup(
-        file_source=style_breakup_file,
-        header_aliases=header_aliases,
-        category_offset=cat_offset,
-        image_col=img_col,
-        category_map=cat_mapping,
-    )
-    print(f"Extracted {len(products)} products from style breakup.")
+    # 1. Parse products based on input_mode
+    if input_mode == "sketch":
+        products = extract_products_from_sketch(
+            file_source=style_breakup_file,
+            category_map=cat_mapping,
+        )
+        print(f"Extracted {len(products)} products from sketch sheet.")
+    else:
+        products = extract_products_from_breakup(
+            file_source=style_breakup_file,
+            header_aliases=header_aliases,
+            category_offset=cat_offset,
+            image_col=img_col,
+            category_map=cat_mapping,
+        )
+        print(f"Extracted {len(products)} products from style breakup.")
 
     # 2. Load Costing Template from repository
     wb_template = openpyxl.load_workbook(template_path)
