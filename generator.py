@@ -61,7 +61,7 @@ def generate_costing_sheet(style_breakup_file=STYLE_BREAKUP_PATH, user_config=No
     sr_no_col_idx = column_index_from_string(sr_col_letter)
     style_col_idx = column_index_from_string(style_col_letter)
     dia_col_map = {k: column_index_from_string(v) for k, v in dia_cols_config.items()}
-    dia_start_col = column_index_from_string("M")
+    dia_start_col = column_index_from_string("L")
     dia_end_col = column_index_from_string("AC")
 
     wb_out = openpyxl.Workbook()

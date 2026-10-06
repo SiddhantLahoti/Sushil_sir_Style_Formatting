@@ -72,6 +72,7 @@ tab_a, tab_b = st.tabs(["📁 Style Breakup (File A)", "🎨 Sketch Sheet (File 
 def get_ui_config():
     cols_dict = dict(config.TEMPLATE_DIAMOND_COLS)
     cols_dict.update({
+        "mm_size": "L",
         "sieve": col_sieve,
         "type_shape": col_shape,
         "qty": col_qty,

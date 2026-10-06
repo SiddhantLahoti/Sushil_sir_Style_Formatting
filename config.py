@@ -50,6 +50,7 @@ CATEGORY_MAPPING = {
 
 # Destination columns for diamond fields
 TEMPLATE_DIAMOND_COLS = {
+    "mm_size": "L",        # MM Size (from Column F)
     "sieve": "M",          # SIEVE
     "type_shape": "N",     # Type/ Shape
     "dia_qlty": "O",       # Quality (from Column C of File B)

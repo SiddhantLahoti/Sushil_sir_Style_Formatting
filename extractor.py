@@ -253,6 +253,7 @@ def extract_products_from_sketch(file_source, category_map=None):
                 shape_map = {"RDFC": "RD", "RDSC": "SC RD"}
                 col_d = shape_map.get(str(raw_shape).strip().upper(), raw_shape) if raw_shape is not None else raw_shape
                 col_e = ws.cell(row=curr_r, column=5).value   # Sieve -> Col M
+                col_f = ws.cell(row=curr_r, column=6).value   # MM Size (Column F)
                 col_g = ws.cell(row=curr_r, column=7).value   # Each Dia Wt -> Col Q
                 col_h = qty_val                               # Qty -> Col P
                 col_j = ws.cell(row=curr_r, column=10).value  # Setting part 1
@@ -263,6 +264,7 @@ def extract_products_from_sketch(file_source, category_map=None):
                 setting_val = " ".join(setting_parts) if setting_parts else None
 
                 diamond_rows.append({
+                    "mm_size": col_f,
                     "sieve": col_e,
                     "type_shape": col_d,
                     "dia_qlty": col_c,
