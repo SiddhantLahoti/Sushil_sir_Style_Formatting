@@ -66,7 +66,7 @@ with st.sidebar:
 # ==============================================================================
 # MAIN PAGE: TABS FOR FILE A AND FILE B
 # ==============================================================================
-tab_a, tab_b = st.tabs(["📁 Style Breakup (File A)", "🎨 Sketch Sheet (File B)"])
+tab_a, tab_b = st.tabs(["📁 Existing Style Breakup (File A)", "🎨 Sketch Breakup (File B)"])
 
 # Common UI config helper
 def get_ui_config():
