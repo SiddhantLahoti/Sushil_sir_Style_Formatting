@@ -243,6 +243,11 @@ def extract_products_from_sketch(file_source, category_map=None):
             # Multi-row diamond extraction starting from row r + 2
             diamond_rows = []
             curr_r = r + 2
+            # Check if the row directly below SHAPE (Col D) and QTY (Col H) is empty
+            first_shape = ws.cell(row=curr_r, column=4).value
+            first_qty = ws.cell(row=curr_r, column=8).value
+            if (first_shape is None or str(first_shape).strip() == "") and (first_qty is None or str(first_qty).strip() == ""):
+                curr_r += 1  # Skip the empty row and start from the next row
             while curr_r <= max_row:
                 qty_val = ws.cell(row=curr_r, column=8).value  # Column H has QTY
                 if qty_val is None or str(qty_val).strip() == "":
