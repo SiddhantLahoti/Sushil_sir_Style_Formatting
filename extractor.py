@@ -9,22 +9,25 @@ from config import BREAKUP_HEADERS, CATEGORY_MAPPING
 
 def extract_images_from_xlsx(file_path):
     """
-    Extracts floating images and their (row, col) cell coordinates directly
-    from the .xlsx zip archive (bypassing openpyxl's read limitation).
+    Extracts floating images, legacy cell images, and modern Office 365
+    'Place in Cell' (Rich Data) images mapped directly to (row, col).
     """
     images = []
     try:
         with zipfile.ZipFile(file_path, "r") as zf:
-            drawing_files = [f for f in zf.namelist() if f.startswith("xl/drawings/drawing") and f.endswith(".xml")]
+            file_names = set(zf.namelist())
 
+            # -------------------------------------------------------------
+            # 1. FLOATING IMAGES (xl/drawings/drawing*.xml)
+            # -------------------------------------------------------------
+            drawing_files = [f for f in file_names if f.startswith("xl/drawings/drawing") and f.endswith(".xml")]
             for draw_path in drawing_files:
                 rels_path = posixpath.join(
                     posixpath.dirname(draw_path), "_rels", posixpath.basename(draw_path) + ".rels"
                 )
-                if rels_path not in zf.namelist():
+                if rels_path not in file_names:
                     continue
 
-                # Map relationship IDs to media paths
                 rels_tree = ET.fromstring(zf.read(rels_path))
                 rel_map = {
                     rel.attrib.get("Id"): posixpath.normpath(
@@ -33,7 +36,6 @@ def extract_images_from_xlsx(file_path):
                     for rel in rels_tree
                 }
 
-                # Parse anchors for row/column coordinates and image embed IDs
                 draw_tree = ET.fromstring(zf.read(draw_path))
                 for anchor in draw_tree:
                     tag = anchor.tag.split("}")[-1]
@@ -53,20 +55,82 @@ def extract_images_from_xlsx(file_path):
                             r_id = next((v for k, v in blip_elem.attrib.items() if k.endswith("embed")), None)
 
                             if r_elem is not None and c_elem is not None and r_id in rel_map:
-                                row_idx = int(r_elem.text) + 1  # 1-indexed row
-                                col_idx = int(c_elem.text) + 1  # 1-indexed col (Col B = 2)
+                                row_idx = int(r_elem.text) + 1
+                                col_idx = int(c_elem.text) + 1
                                 target_path = rel_map[r_id]
 
-                                if target_path in zf.namelist():
+                                if target_path in file_names:
                                     img = Image(io.BytesIO(zf.read(target_path)))
-                                    # Scale down high-res photos so they fit neatly in Column C
                                     if img.width and img.height:
                                         max_dim = 130
                                         scale = min(max_dim / img.width, max_dim / img.height, 1.0)
                                         img.width = int(img.width * scale)
                                         img.height = int(img.height * scale)
-
                                     images.append({"row": row_idx, "col": col_idx, "img": img})
+
+            # -------------------------------------------------------------
+            # 2. MICROSOFT 365 "PLACE IN CELL" (Rich Data Architecture)
+            # -------------------------------------------------------------
+            rich_rel_file = "xl/richData/richValueRel.xml"
+            rich_rels_file = "xl/richData/_rels/richValueRel.xml.rels"
+            metadata_file = "xl/metadata.xml"
+
+            if rich_rels_file in file_names and rich_rel_file in file_names:
+                # Map rId -> media path
+                rels_tree = ET.fromstring(zf.read(rich_rels_file))
+                rel_map = {}
+                for rel in rels_tree:
+                    target = rel.attrib.get("Target", "")
+                    rel_map[rel.attrib.get("Id")] = posixpath.normpath(
+                        posixpath.join("xl/richData", target)
+                    )
+
+                # Map 0-indexed position -> media path
+                rich_rel_tree = ET.fromstring(zf.read(rich_rel_file))
+                rich_images = []
+                for rel_elem in rich_rel_tree.iter():
+                    if rel_elem.tag.split("}")[-1] == "rel":
+                        r_id = next((v for k, v in rel_elem.attrib.items() if k.endswith("id")), None)
+                        if r_id and r_id in rel_map:
+                            rich_images.append(rel_map[r_id])
+
+                # Read valueMetadata index mapping (vm attribute on cells)
+                vm_to_image_idx = {}
+                if metadata_file in file_names:
+                    meta_tree = ET.fromstring(zf.read(metadata_file))
+                    vm_counter = 1
+                    for bk in meta_tree.iter():
+                        if bk.tag.split("}")[-1] == "bk":
+                            for rc in bk:
+                                if rc.tag.split("}")[-1] == "rc":
+                                    val_idx = int(rc.attrib.get("v", 0))
+                                    vm_to_image_idx[vm_counter] = val_idx
+                                    vm_counter += 1
+
+                # Map cells with vm attribute to actual image
+                sheet_files = [f for f in file_names if f.startswith("xl/worksheets/sheet") and f.endswith(".xml")]
+                from openpyxl.utils import coordinate_to_tuple
+                for sheet_path in sheet_files:
+                    sheet_tree = ET.fromstring(zf.read(sheet_path))
+                    for c_elem in sheet_tree.iter():
+                        if c_elem.tag.split("}")[-1] == "c":
+                            vm_attr = c_elem.attrib.get("vm")
+                            if vm_attr:
+                                vm_val = int(vm_attr)
+                                img_idx = vm_to_image_idx.get(vm_val, vm_val - 1)
+                                if 0 <= img_idx < len(rich_images):
+                                    media_path = rich_images[img_idx]
+                                    if media_path in file_names:
+                                        cell_ref = c_elem.attrib.get("r")
+                                        r_idx, c_idx = coordinate_to_tuple(cell_ref)
+                                        img = Image(io.BytesIO(zf.read(media_path)))
+                                        if img.width and img.height:
+                                            max_dim = 130
+                                            scale = min(max_dim / img.width, max_dim / img.height, 1.0)
+                                            img.width = int(img.width * scale)
+                                            img.height = int(img.height * scale)
+                                        images.append({"row": r_idx, "col": c_idx, "img": img})
+
     except Exception as e:
         print(f"Warning: Could not extract images: {e}")
     return images
@@ -100,7 +164,6 @@ def extract_products_from_breakup(
     header_aliases = header_aliases or BREAKUP_HEADERS
     cat_mapping = category_map or CATEGORY_MAPPING
 
-    # Reset stream pointer if it's an uploaded file object
     if hasattr(file_source, "seek"):
         file_source.seek(0)
 
@@ -110,7 +173,6 @@ def extract_products_from_breakup(
         file_source.seek(0)
     wb = openpyxl.load_workbook(file_source, data_only=True)
     ws = wb.active
-    
 
     col_map = {}
     header_row_idx = None
@@ -130,7 +192,7 @@ def extract_products_from_breakup(
     missing = [f for f in required if f not in col_map]
     if missing:
         wb.close()
-        raise ValueError(f"Missing required columns in {file_path}: {missing}")
+        raise ValueError(f"Missing required columns: {missing}")
 
     products = []
     max_row = ws.max_row
@@ -142,22 +204,32 @@ def extract_products_from_breakup(
 
         if cust_val is not None and str(cust_val).strip() != "" and style_val is not None and str(style_val).strip() != "":
             style_num = str(style_val).strip()
-            # Match image located in Column B (col 2) near this style row
+            
+            # 1. Match image: Check directly in-cell first, then nearby floating images
             prod_image = None
             matched_item = None
-            best_dist = float("inf")
+
+            # 1. Direct cell match: only in Column O (col 15)
             for item in sheet_images:
-                if item["col"] in (image_col - 1, image_col, image_col + 1):  # Catches Col B even if slightly overlapping A or C
-                    dist = abs(item["row"] - r)
-                    if dist < best_dist and dist <= 6:
-                        best_dist = dist
-                        matched_item = item
+                if item["col"] == 15 and r <= item["row"] <= r + 12:
+                    matched_item = item
+                    break
+
+            # 2. Proximity match: only anchor to Column O (col 15)
+            if not matched_item:
+                best_dist = float("inf")
+                for item in sheet_images:
+                    if item["col"] == 15:
+                        if r <= item["row"] <= r + 12:
+                            dist = abs(item["row"] - r)
+                            if dist < best_dist:
+                                best_dist = dist
+                                matched_item = item
 
             if matched_item:
                 sheet_images.remove(matched_item)
                 prod_image = matched_item["img"]
                 
-            # Category is located 2 rows below the style number row in the style column
             raw_cat = " ".join(str(ws.cell(row=r + category_offset, column=col_map["style"]).value or "").strip().lower().split())
             category = cat_mapping.get(raw_cat, "ring")
 
@@ -200,7 +272,6 @@ def extract_products_from_sketch(file_source, category_map=None):
     if hasattr(file_source, "seek"):
         file_source.seek(0)
 
-    # 1. Extract floating images
     sheet_images = extract_images_from_xlsx(file_source)
 
     if hasattr(file_source, "seek"):
@@ -213,58 +284,63 @@ def extract_products_from_sketch(file_source, category_map=None):
 
     for r in range(1, max_row + 1):
         cell_a = ws.cell(row=r, column=1).value
-        # Detect "Sketch No." in Column A
         if cell_a and "sketch no" in str(cell_a).strip().lower():
-            style_val = ws.cell(row=r, column=3).value  # Column C has style number
+            style_val = ws.cell(row=r, column=3).value
             if not style_val:
                 continue
             style_num = str(style_val).strip()
 
-            # Category is at row r + 15 in Column P (column 16)
             raw_cat = str(ws.cell(row=r + 15, column=16).value or "").strip().lower()
             category = cat_mapping.get(raw_cat, "ring")
 
-            # Extract Sketch Image from Column O (col 15) near rows r to r + 12
+            # Extract Sketch Image (Column O is col 15, Column P is col 16)
             prod_image = None
             matched_item = None
-            best_dist = float("inf")
+
+            # 1. Direct cell match: only in Column O (col 15)
             for item in sheet_images:
-                if item["col"] in (14, 15):  # Column O
-                    if r <= item["row"] <= r + 12:
-                        dist = abs(item["row"] - r)
-                        if dist < best_dist:
-                            best_dist = dist
-                            matched_item = item
+                if item["col"] == 15 and r <= item["row"] <= r + 12:
+                    matched_item = item
+                    break
+
+            # 2. Proximity match: only anchor to Column O (col 15)
+            if not matched_item:
+                best_dist = float("inf")
+                for item in sheet_images:
+                    if item["col"] == 15:
+                        if r <= item["row"] <= r + 12:
+                            dist = abs(item["row"] - r)
+                            if dist < best_dist:
+                                best_dist = dist
+                                matched_item = item
 
             if matched_item:
                 sheet_images.remove(matched_item)
                 prod_image = matched_item["img"]
 
-            # Multi-row diamond extraction starting from row r + 2
             diamond_rows = []
             curr_r = r + 2
-            # Check if the row directly below SHAPE (Col D) and QTY (Col H) is empty
             first_shape = ws.cell(row=curr_r, column=4).value
             first_qty = ws.cell(row=curr_r, column=8).value
             if (first_shape is None or str(first_shape).strip() == "") and (first_qty is None or str(first_qty).strip() == ""):
-                curr_r += 1  # Skip the empty row and start from the next row
+                curr_r += 1
+
             while curr_r <= max_row:
-                qty_val = ws.cell(row=curr_r, column=8).value  # Column H has QTY
+                qty_val = ws.cell(row=curr_r, column=8).value
                 if qty_val is None or str(qty_val).strip() == "":
                     break
 
-                col_c = ws.cell(row=curr_r, column=3).value   # Quality -> Col O
+                col_c = ws.cell(row=curr_r, column=3).value
                 raw_shape = ws.cell(row=curr_r, column=4).value
                 shape_map = {"RDFC": "RD", "RDSC": "SC RD"}
                 col_d = shape_map.get(str(raw_shape).strip().upper(), raw_shape) if raw_shape is not None else raw_shape
-                col_e = ws.cell(row=curr_r, column=5).value   # Sieve -> Col M
-                col_f = ws.cell(row=curr_r, column=6).value   # MM Size (Column F)
-                col_g = ws.cell(row=curr_r, column=7).value   # Each Dia Wt -> Col Q
-                col_h = qty_val                               # Qty -> Col P
-                col_j = ws.cell(row=curr_r, column=10).value  # Setting part 1
-                col_k = ws.cell(row=curr_r, column=11).value  # Setting part 2
+                col_e = ws.cell(row=curr_r, column=5).value
+                col_f = ws.cell(row=curr_r, column=6).value
+                col_g = ws.cell(row=curr_r, column=7).value
+                col_h = qty_val
+                col_j = ws.cell(row=curr_r, column=10).value
+                col_k = ws.cell(row=curr_r, column=11).value
 
-                # Merge J and K with space -> Col Z
                 setting_parts = [str(x).strip() for x in (col_j, col_k) if x is not None and str(x).strip() != ""]
                 setting_val = " ".join(setting_parts) if setting_parts else None
 
